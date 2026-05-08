@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+
+# macOS
+.DS_Store
+
+# Storage data
+storage/uploads/
+storage/text/
+storage/faiss/
+
+# Evaluation artifacts
+eval/predictions/
+eval/reports/
+
+# Large datasets
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Env files
