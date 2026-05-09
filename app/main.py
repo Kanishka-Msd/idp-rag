@@ -11,6 +11,8 @@ import json
 import numpy as np
 import faiss
 import re
+import mlflow
+import time
 from sentence_transformers import SentenceTransformer
 from groq import Groq
 
@@ -27,6 +29,7 @@ Processes any PDF document using OCR, LLMs, and RAG.
 - LLM-powered field extraction
 - RAG-based document Q&A
 - Semantic search with FAISS
+- MLflow experiment tracking
 
 ### Model Routing
 - Simple documents → llama-3.1-8b-instant (560 tok/sec)
@@ -35,25 +38,26 @@ Processes any PDF document using OCR, LLMs, and RAG.
     version="2.0.0"
 )
 
+# ─── MLflow Setup ───
+mlflow.set_tracking_uri("./mlruns")
+mlflow.set_experiment("idp-rag-tracking")
+
 # ─── Groq Client Setup ───
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "your-groq-api-key-here")
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Model routing
-FAST_MODEL = "llama-3.1-8b-instant"      # simple/short documents
-SMART_MODEL = "llama-3.3-70b-versatile"  # complex/large documents
-COMPLEXITY_THRESHOLD = 2000              # tokens
+FAST_MODEL = "llama-3.1-8b-instant"
+SMART_MODEL = "llama-3.3-70b-versatile"
+COMPLEXITY_THRESHOLD = 2000
 
 def get_model(text_length: int, task: str = "extract") -> str:
-    """Route to appropriate model based on document complexity"""
     if task == "rag" or text_length > COMPLEXITY_THRESHOLD:
         return SMART_MODEL
     return FAST_MODEL
 
 def call_groq(prompt: str, text_length: int = 0, task: str = "extract") -> str:
-    """Call Groq API with automatic model routing"""
     model = get_model(text_length, task)
-    
     response = groq_client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -299,6 +303,7 @@ def heuristic_currency(text: str) -> str | None:
 # ─── Extract Text ───
 @app.post("/extract-text")
 def extract_text(payload: DocRequest):
+    start_time = time.time()
     pdf_path = find_pdf_by_doc_id(payload.doc_id)
     text = extract_text_pdfplumber(pdf_path)
     method = "pdf_text"
@@ -318,6 +323,16 @@ def extract_text(payload: DocRequest):
         errors="ignore"
     )
 
+    duration = time.time() - start_time
+
+    # Track with MLflow
+    with mlflow.start_run(run_name=f"extract-{payload.doc_id[:8]}"):
+        mlflow.log_param("doc_id", payload.doc_id)
+        mlflow.log_param("extraction_method", method)
+        mlflow.log_metric("text_length", len(text))
+        mlflow.log_metric("num_chunks", len(chunks))
+        mlflow.log_metric("extraction_time_seconds", duration)
+
     return {
         "doc_id": payload.doc_id,
         "method": method,
@@ -328,13 +343,22 @@ def extract_text(payload: DocRequest):
     }
 
 
-# ─── Ingest (Embeddings + FAISS) ───
+# ─── Ingest ───
 @app.post("/ingest")
 def ingest_doc(payload: DocRequest):
+    start_time = time.time()
     chunks = load_chunks_for_doc(payload.doc_id)
     vectors = embedder.encode(chunks, convert_to_numpy=True).astype("float32")
     index = build_faiss_index(vectors)
     save_faiss_for_doc(payload.doc_id, index, chunks)
+    duration = time.time() - start_time
+
+    # Track with MLflow
+    with mlflow.start_run(run_name=f"ingest-{payload.doc_id[:8]}"):
+        mlflow.log_param("doc_id", payload.doc_id)
+        mlflow.log_param("embedding_model", EMBED_MODEL_NAME)
+        mlflow.log_metric("num_chunks_indexed", len(chunks))
+        mlflow.log_metric("ingestion_time_seconds", duration)
 
     return {
         "doc_id": payload.doc_id,
@@ -347,6 +371,7 @@ def ingest_doc(payload: DocRequest):
 # ─── RAG Q&A ───
 @app.post("/ask-rag")
 def ask_rag(payload: RagAskRequest):
+    start_time = time.time()
     retrieved = retrieve_top_chunks(payload.doc_id, payload.question, payload.top_k)
 
     if not retrieved:
@@ -370,6 +395,18 @@ CONTEXT:
 """.strip()
 
     answer, model_used = call_groq(prompt, text_length=len(context), task="rag")
+    duration = time.time() - start_time
+
+    avg_score = sum(r["score"] for r in retrieved) / len(retrieved) if retrieved else 0
+
+    # Track with MLflow
+    with mlflow.start_run(run_name=f"rag-{payload.doc_id[:8]}"):
+        mlflow.log_param("doc_id", payload.doc_id)
+        mlflow.log_param("model_used", model_used)
+        mlflow.log_metric("top_k", payload.top_k)
+        mlflow.log_metric("chunks_retrieved", len(retrieved))
+        mlflow.log_metric("avg_relevance_score", avg_score)
+        mlflow.log_metric("response_time_seconds", duration)
 
     return {
         "doc_id": payload.doc_id,
@@ -384,6 +421,7 @@ CONTEXT:
 @app.post("/extract-fields")
 def extract_fields(payload: FieldExtractRequest):
     try:
+        start_time = time.time()
         text = load_full_text(payload.doc_id)
         text_for_llm = text[:4000]
 
@@ -438,10 +476,25 @@ DOCUMENT TEXT:
                     month_map = {
                         "jan": "01", "feb": "02", "mar": "03", "apr": "04",
                         "may": "05", "jun": "06", "jul": "07", "aug": "08",
-                        "sep": "09", "oct": "10", "nov": "11", "dec":": 12"
+                        "sep": "09", "oct": "10", "nov": "11", "dec": "12"
                     }
                     if month_str in month_map:
                         fields["invoice_date"] = f"{year}-{month_map[month_str]}-{day}"
+
+        duration = time.time() - start_time
+        fields_extracted = len([v for v in fields.values() if v and v != []])
+
+        # Track with MLflow
+        with mlflow.start_run(run_name=f"extract-fields-{payload.doc_id[:8]}"):
+            mlflow.log_param("doc_id", payload.doc_id)
+            mlflow.log_param("doc_type", payload.doc_type)
+            mlflow.log_param("model_used", model_used)
+            mlflow.log_metric("text_length", len(text))
+            mlflow.log_metric("fields_extracted", fields_extracted)
+            mlflow.log_metric("has_vendor", 1 if fields.get("vendor_name") else 0)
+            mlflow.log_metric("has_amount", 1 if fields.get("total_amount") else 0)
+            mlflow.log_metric("has_date", 1 if fields.get("invoice_date") else 0)
+            mlflow.log_metric("extraction_time_seconds", duration)
 
         # Save prediction
         Path("eval/predictions").mkdir(parents=True, exist_ok=True)

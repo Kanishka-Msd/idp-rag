@@ -1,0 +1,14 @@
+artifact_uri: /Users/kanish/idp-rag/mlruns/213937985785214796/4d6a7348d2bc448a9d9016954fec3527/artifacts
+end_time: 1778365761405
+entry_point_name: ''
+experiment_id: '213937985785214796'
+lifecycle_stage: active
+run_id: 4d6a7348d2bc448a9d9016954fec3527
+run_name: extract-9a88b5ad
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1778365761397
+status: 3
+tags: []
+user_id: kanish
