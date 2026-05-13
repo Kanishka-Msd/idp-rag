@@ -16,7 +16,7 @@ An AI-powered system for processing ANY PDF document using OCR, LLMs, and RAG.
 
 | Link | Description |
 |------|-------------|
-| [**Live API**](https://idp-rag.onrender.com/docs) | Interactive Swagger UI |
+| [**Live API**](https://kanishka76-idp-rag.hf.space/docs) | Interactive Swagger UI |
 | [**GitHub**](https://github.com/Kanishka-Msd/idp-rag) | Source code |
 
 ## 🎯 What this project does
