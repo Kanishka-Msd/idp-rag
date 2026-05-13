@@ -1,3 +1,13 @@
+---
+title: IDP RAG
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # AI-Driven Intelligent Document Processing (IDP) + RAG System 🤖
 
 An AI-powered system for processing ANY PDF document using OCR, LLMs, and RAG.
