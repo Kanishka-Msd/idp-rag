@@ -139,6 +139,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         "saved_as": str(save_path),
         "bytes": len(content),
     }
+@app.get("/")
+def root():
+    return {"message": "IDP RAG API Running"}
 
 
 # ─── Helper Functions ───
